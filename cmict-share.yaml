@@ -1,0 +1,77 @@
+spring:
+  datasource:
+    dynamic:
+      # 设置默认数据源
+      primary: master
+      # 是否设置严格模式，默认false不启动，启动后在未匹配到指定数据源时候回抛出异常，不启动会使用默认数据源
+      strict: true
+      datasource:
+        master:
+          type: com.zaxxer.hikari.HikariDataSource
+          pool-name: HikariCP
+          driver-class-name: com.p6spy.engine.spy.P6SpyDriver
+          url: jdbc:p6spy:mysql://mysql:3306/frame_admin_demo?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8&autoReconnect=true&useSSL=false
+          username: root
+          password: passw0rd
+        slave:
+          type: com.zaxxer.hikari.HikariDataSource
+          pool-name: HikariCP
+          driver-class-name: com.p6spy.engine.spy.P6SpyDriver
+          url: jdbc:p6spy:mysql://mysql:3306/aict?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8&autoReconnect=true&useSSL=false
+          username: root
+          password: passw0rd
+          # driver-class-name: com.kingbase8.Driver
+          # url: jdbc:kingbase8://kdb.meteion-dev:54321/kingbase/frame_admin_demo
+          # username: aict
+          # password: DmPassword2023
+          
+      # 数据库连接池配置
+      hikari:
+        # 连接池中允许的最小连接数，默认值10，当空闲连接低于该值且总连接数低于最大连接数时，HikariCP会立即添加连接来保证一个高效的性能
+        min-idle: 5
+        # 连接池中允许的最大连接数，默认值10，当连接数达到该值时，新的连接申请会被阻塞直到超时
+        max-pool-size: 20
+        # 自动提交
+        is-auto-commit: true
+        # 空闲连接超时时间（毫秒），超时则被释放，即间隔多久检测一次需要关闭的空闲连接，最小10秒
+        idle-timeout: 6000
+        # 一个连接的生命时长（毫秒），超时而且没被使用则被释放，最小30秒，建议设置比数据库超时时长少30秒
+        max-lifetime: 300000
+        # 等待连接池分配连接的最大时长（毫秒），超过这个时长还没可用的连接则发生SQLException
+        connection-timeout: 30000
+        # 数据库连接测试语句
+        connection-test-query: SELECT 1
+  redis:
+    cluster:
+      nodes: redis-cluster-0.redis-cluster-headless.aict.svc.cluster.local:6379,redis-cluster-1.redis-cluster-headless.aict.svc.cluster.local:6379,redis-cluster-2.redis-cluster-headless.aict.svc.cluster.local:6379,redis-cluster-3.redis-cluster-headless.aict.svc.cluster.local:6379,redis-cluster-4.redis-cluster-headless.aict.svc.cluster.local:6379,redis-cluster-5.redis-cluster-headless.aict.svc.cluster.local:6379
+    database: 0
+    password: Redis@Passw0rd
+    timeout: 30s
+    lettuce:
+      pool:
+        # 连接池最大连接数（使用负值表示没有限制）
+        max-active: 200
+        # 连接池中的最大空闲连接
+        max-idle: 10
+        # 连接池中的最小空闲连接
+        min-idle: 0
+        # 连接池最大阻塞等待时间（使用负值表示没有限制）
+        max-wait: 30s
+
+# swagger配置
+knife4j:
+  enable: false
+  basic:
+    enable: true
+    username: admin
+    password: admin123@AAA
+
+# 是否开启认证拦截器
+auth:
+  filter:
+    enable: false
+  whiteUrl: /**/login,/**/login/**,/cmict/aict-springai-api/voice-recognition,/**/conversationManager/open/stream/v1/chat/completions,/**/sso/om/ticket/verify,/**/sso/om/ticket,/**/oauth/callback,/**/sms-login,/**/submit-tokens,/**/password-change/sms,/**/sms-reset-pwd,/**/user/me,/cmict/aict-springai-api/appSettings,/**/goods/**,/**/goods-category/list,/**/business-customers-banner/list,/**/goods-file/**,/**/homeCount,/**/robotManagerShare/ollamaForStream/**,/**/robotManagerShare/getShareDetailByCode/**,/**/robotManagerShare/modelChatForDoc,/**/rge/share/url,/**/sso/zhxt/user/process,/**/robotManagerShare/getShareDetailByCode
+mybatis-plus:
+  global-config:
+    db-config:
+      date-format: yyyy-MM-dd HH:mm:ss

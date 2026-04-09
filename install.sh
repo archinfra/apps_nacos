@@ -3,13 +3,16 @@
 set -Eeuo pipefail
 
 APP_NAME="nacos"
-APP_VERSION="0.1.2"
+APP_VERSION="0.1.3"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 IMAGE_DIR="${WORKDIR}/images"
 MANIFEST_DIR="${WORKDIR}/manifests"
+BOOTSTRAP_DIR="${WORKDIR}/bootstrap"
 IMAGE_INDEX="${IMAGE_DIR}/image-index.tsv"
 YAML_FILE="${MANIFEST_DIR}/nacos.yaml"
+BOOTSTRAP_SQL_FILE="${BOOTSTRAP_DIR}/frame_nacos_demo.sql"
+CMICT_SHARE_FILE="${BOOTSTRAP_DIR}/cmict-share.yaml"
 
 IMAGE_NAME="nacos-server"
 IMAGE_TAG="v2.3.0-slim"
@@ -37,6 +40,10 @@ SERVICE_MONITOR_INTERVAL="30s"
 SERVICE_MONITOR_SCRAPE_TIMEOUT="10s"
 WAIT_TIMEOUT="10m"
 NODE_PORT="30094"
+ENABLE_DB_BOOTSTRAP="true"
+ENABLE_CMICT_SHARE_IMPORT="true"
+CMICT_SHARE_DATA_ID="cmict-share.yaml"
+CMICT_SHARE_GROUP="DEFAULT_GROUP"
 AUTO_YES="false"
 
 RED='\033[0;31m'
@@ -46,6 +53,9 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
+
+NACOS_IMAGE_REF=""
+MYSQL_HELPER_IMAGE_REF=""
 
 log() {
   echo -e "${CYAN}[INFO]${NC} $*"
@@ -121,9 +131,18 @@ Monitoring:
   --service-monitor-interval <value>   ServiceMonitor interval, default: ${SERVICE_MONITOR_INTERVAL}
   --service-monitor-scrape-timeout <v> ServiceMonitor scrape timeout, default: ${SERVICE_MONITOR_SCRAPE_TIMEOUT}
 
+Bootstrap:
+  --enable-db-bootstrap                Initialize standard Nacos tables and baseline data, default: ${ENABLE_DB_BOOTSTRAP}
+  --disable-db-bootstrap               Skip SQL bootstrap
+  --enable-cmict-share-import          Import ${CMICT_SHARE_DATA_ID} baseline config, default: ${ENABLE_CMICT_SHARE_IMPORT}
+  --disable-cmict-share-import         Skip ${CMICT_SHARE_DATA_ID} import
+  --cmict-share-data-id <name>         Default: ${CMICT_SHARE_DATA_ID}
+  --cmict-share-group <name>           Default: ${CMICT_SHARE_GROUP}
+
 Examples:
   ${cmd} install --mysql-password '<MYSQL_PASSWORD>' -y
   ${cmd} install --mysql-host ${MYSQL_HOST} --mysql-password '<MYSQL_PASSWORD>' -y
+  ${cmd} install --disable-db-bootstrap --mysql-password '<MYSQL_PASSWORD>' -y
   ${cmd} status -n ${NAMESPACE}
   ${cmd} uninstall -n ${NAMESPACE} -y
 EOF
@@ -251,6 +270,32 @@ parse_args() {
         SERVICE_MONITOR_SCRAPE_TIMEOUT="$2"
         shift 2
         ;;
+      --enable-db-bootstrap)
+        ENABLE_DB_BOOTSTRAP="true"
+        shift
+        ;;
+      --disable-db-bootstrap)
+        ENABLE_DB_BOOTSTRAP="false"
+        shift
+        ;;
+      --enable-cmict-share-import)
+        ENABLE_CMICT_SHARE_IMPORT="true"
+        shift
+        ;;
+      --disable-cmict-share-import)
+        ENABLE_CMICT_SHARE_IMPORT="false"
+        shift
+        ;;
+      --cmict-share-data-id)
+        [[ $# -ge 2 ]] || die "$1 requires a value"
+        CMICT_SHARE_DATA_ID="$2"
+        shift 2
+        ;;
+      --cmict-share-group)
+        [[ $# -ge 2 ]] || die "$1 requires a value"
+        CMICT_SHARE_GROUP="$2"
+        shift 2
+        ;;
       -y|--yes)
         AUTO_YES="true"
         shift
@@ -277,13 +322,15 @@ validate_config() {
   if (( NODE_PORT < 30000 || NODE_PORT > 32767 )); then
     die "--node-port must be between 30000 and 32767"
   fi
+  [[ -n "${CMICT_SHARE_DATA_ID}" ]] || die "--cmict-share-data-id must not be empty"
+  [[ -n "${CMICT_SHARE_GROUP}" ]] || die "--cmict-share-group must not be empty"
 }
 
 check_deps() {
   command -v kubectl >/dev/null 2>&1 || die "kubectl is required"
 
-  if [[ "${ACTION}" == "install" && "${SKIP_IMAGE_PREPARE}" != "true" && "${IMAGE_SPECIFIED}" != "true" ]]; then
-    command -v docker >/dev/null 2>&1 || die "docker is required unless --skip-image-prepare or --image is used"
+  if [[ "${ACTION}" == "install" && "${SKIP_IMAGE_PREPARE}" != "true" ]]; then
+    command -v docker >/dev/null 2>&1 || die "docker is required unless --skip-image-prepare is used"
   fi
 }
 
@@ -299,6 +346,8 @@ confirm() {
   echo "Image: ${IMAGE}"
   echo "Enable metrics: ${ENABLE_METRICS}"
   echo "Enable ServiceMonitor: ${ENABLE_SERVICEMONITOR}"
+  echo "Enable DB bootstrap: ${ENABLE_DB_BOOTSTRAP}"
+  echo "Enable cmict-share import: ${ENABLE_CMICT_SHARE_IMPORT}"
   echo "Skip image prepare: ${SKIP_IMAGE_PREPARE}"
   echo
   read -r -p "Continue? [y/N] " answer
@@ -334,13 +383,15 @@ extract_payload() {
   local offset
   section "Extract Payload"
   rm -rf "${WORKDIR}"
-  mkdir -p "${IMAGE_DIR}" "${MANIFEST_DIR}"
+  mkdir -p "${IMAGE_DIR}" "${MANIFEST_DIR}" "${BOOTSTRAP_DIR}"
 
   offset="$(payload_start_offset)" || die "failed to find payload marker"
   tail -c +"${offset}" "$0" | tar -xzf - -C "${WORKDIR}" || die "failed to extract payload"
 
   [[ -f "${YAML_FILE}" ]] || die "missing manifest file"
   [[ -f "${IMAGE_INDEX}" ]] || die "missing image index"
+  [[ -f "${BOOTSTRAP_SQL_FILE}" ]] || die "missing bootstrap SQL file"
+  [[ -f "${CMICT_SHARE_FILE}" ]] || die "missing cmict-share config file"
 }
 
 target_registry_host() {
@@ -361,6 +412,45 @@ docker_login_if_needed() {
   printf '%s' "${REGISTRY_PASSWORD}" | docker login "${registry_host}" --username "${REGISTRY_USER}" --password-stdin >/dev/null
 }
 
+target_ref_from_default() {
+  local default_ref="$1"
+  local suffix="${default_ref##*/}"
+  printf '%s/%s\n' "${REGISTRY_REPO}" "${suffix}"
+}
+
+resolve_target_ref() {
+  local tar_name="$1"
+  local default_ref="$2"
+  case "${tar_name}" in
+    nacos-server-*.tar)
+      printf '%s\n' "${IMAGE}"
+      ;;
+    mysql-client-*.tar)
+      target_ref_from_default "${default_ref}"
+      ;;
+    *)
+      target_ref_from_default "${default_ref}"
+      ;;
+  esac
+}
+
+load_image_metadata() {
+  while IFS=$'\t' read -r tar_name _pull_ref default_target_ref _platform; do
+    [[ -n "${tar_name}" ]] || continue
+    case "${tar_name}" in
+      nacos-server-*.tar)
+        NACOS_IMAGE_REF="$(resolve_target_ref "${tar_name}" "${default_target_ref}")"
+        ;;
+      mysql-client-*.tar)
+        MYSQL_HELPER_IMAGE_REF="$(resolve_target_ref "${tar_name}" "${default_target_ref}")"
+        ;;
+    esac
+  done < "${IMAGE_INDEX}"
+
+  [[ -n "${NACOS_IMAGE_REF}" ]] || die "failed to resolve nacos image"
+  [[ -n "${MYSQL_HELPER_IMAGE_REF}" ]] || die "failed to resolve mysql helper image"
+}
+
 prepare_images() {
   local registry_host
   if [[ "${SKIP_IMAGE_PREPARE}" == "true" ]]; then
@@ -368,25 +458,22 @@ prepare_images() {
     return 0
   fi
 
-  if [[ "${IMAGE_SPECIFIED}" == "true" ]]; then
-    log "using user supplied image ${IMAGE}; skipping offline image preparation"
-    return 0
-  fi
-
-  registry_host="$(target_registry_host "${IMAGE}")"
+  registry_host="$(target_registry_host "${NACOS_IMAGE_REF}")"
   docker_login_if_needed "${registry_host}"
 
   while IFS=$'\t' read -r tar_name _pull_ref load_ref _platform; do
+    local target_ref
     [[ -n "${tar_name}" ]] || continue
+    target_ref="$(resolve_target_ref "${tar_name}" "${load_ref}")"
     [[ -f "${IMAGE_DIR}/${tar_name}" ]] || die "missing image archive ${tar_name}"
     log "loading ${tar_name}"
     docker load -i "${IMAGE_DIR}/${tar_name}" >/dev/null
-    if [[ "${load_ref}" != "${IMAGE}" ]]; then
-      log "tagging ${load_ref} -> ${IMAGE}"
-      docker tag "${load_ref}" "${IMAGE}"
+    if [[ "${load_ref}" != "${target_ref}" ]]; then
+      log "tagging ${load_ref} -> ${target_ref}"
+      docker tag "${load_ref}" "${target_ref}"
     fi
-    log "pushing ${IMAGE}"
-    docker push "${IMAGE}" >/dev/null
+    log "pushing ${target_ref}"
+    docker push "${target_ref}" >/dev/null
   done < "${IMAGE_INDEX}"
 }
 
@@ -420,6 +507,120 @@ service_monitor_namespace() {
   else
     printf '%s\n' "${NAMESPACE}"
   fi
+}
+
+job_logs_or_warn() {
+  local job_name="$1"
+  kubectl logs -n "${NAMESPACE}" "job/${job_name}" --all-containers=true 2>/dev/null || true
+}
+
+wait_for_job() {
+  local job_name="$1"
+  if ! kubectl wait -n "${NAMESPACE}" --for=condition=complete "job/${job_name}" --timeout="${WAIT_TIMEOUT}"; then
+    job_logs_or_warn "${job_name}"
+    die "job ${job_name} did not complete successfully"
+  fi
+}
+
+bootstrap_database() {
+  local cm_name="nacos-bootstrap-assets"
+  local secret_name="nacos-bootstrap-db-auth"
+  local job_name="nacos-db-bootstrap"
+
+  if [[ "${ENABLE_DB_BOOTSTRAP}" != "true" && "${ENABLE_CMICT_SHARE_IMPORT}" != "true" ]]; then
+    return 0
+  fi
+
+  section "Bootstrap Nacos Database"
+  kubectl delete job "${job_name}" -n "${NAMESPACE}" --ignore-not-found --wait >/dev/null 2>&1 || true
+  kubectl create secret generic "${secret_name}" \
+    -n "${NAMESPACE}" \
+    --from-literal=mysql-host="${MYSQL_HOST}" \
+    --from-literal=mysql-port="${MYSQL_PORT}" \
+    --from-literal=mysql-database="${MYSQL_DATABASE}" \
+    --from-literal=mysql-user="${MYSQL_USER}" \
+    --from-literal=mysql-password="${MYSQL_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create configmap "${cm_name}" \
+    -n "${NAMESPACE}" \
+    --from-file=frame_nacos_demo.sql="${BOOTSTRAP_SQL_FILE}" \
+    --from-file=cmict-share.yaml="${CMICT_SHARE_FILE}" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
+  cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${job_name}
+  namespace: ${NAMESPACE}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: mysql-bootstrap
+        image: ${MYSQL_HELPER_IMAGE_REF}
+        imagePullPolicy: ${IMAGE_PULL_POLICY}
+        env:
+        - name: MYSQL_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${secret_name}
+              key: mysql-host
+        - name: MYSQL_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${secret_name}
+              key: mysql-port
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: ${secret_name}
+              key: mysql-database
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${secret_name}
+              key: mysql-user
+        - name: MYSQL_PWD
+          valueFrom:
+            secretKeyRef:
+              name: ${secret_name}
+              key: mysql-password
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          mysql --protocol=TCP -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -e "CREATE DATABASE IF NOT EXISTS \\\`${MYSQL_DATABASE}\\\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
+          if [ '${ENABLE_DB_BOOTSTRAP}' = 'true' ]; then
+            mysql --protocol=TCP -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" "${MYSQL_DATABASE}" < /bootstrap/frame_nacos_demo.sql
+          fi
+          if [ '${ENABLE_CMICT_SHARE_IMPORT}' = 'true' ]; then
+            CMICT_SHARE_CONTENT="\$(sed \"s/'/''/g\" /bootstrap/cmict-share.yaml)"
+            CMICT_SHARE_MD5="\$(md5sum /bootstrap/cmict-share.yaml | awk '{print \$1}')"
+            mysql --protocol=TCP -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" "${MYSQL_DATABASE}" <<SQL
+REPLACE INTO config_info (
+  data_id, group_id, content, md5, gmt_create, gmt_modified,
+  src_user, src_ip, app_name, tenant_id, c_desc, c_use, effect, type, c_schema, encrypted_data_key
+) VALUES (
+  '${CMICT_SHARE_DATA_ID}', '${CMICT_SHARE_GROUP}', '\${CMICT_SHARE_CONTENT}', '\${CMICT_SHARE_MD5}', NOW(), NOW(),
+  'nacos-installer', '127.0.0.1', NULL, '', NULL, NULL, NULL, 'yaml', NULL, ''
+);
+SQL
+          fi
+        volumeMounts:
+        - name: bootstrap-assets
+          mountPath: /bootstrap
+      volumes:
+      - name: bootstrap-assets
+        configMap:
+          name: ${cm_name}
+EOF
+
+  wait_for_job "${job_name}"
+  success "Nacos bootstrap data is ready"
 }
 
 render_yaml() {
@@ -471,8 +672,10 @@ install_app() {
   require_install_args
   confirm
   extract_payload
+  load_image_metadata
   prepare_images
   ensure_namespace
+  bootstrap_database
   check_service_monitor_support
 
   section "Install Nacos"
@@ -488,6 +691,9 @@ uninstall_app() {
   kubectl delete service/nacos -n "${NAMESPACE}" --ignore-not-found
   kubectl delete configmap/nacos -n "${NAMESPACE}" --ignore-not-found
   kubectl delete configmap/nacos-config -n "${NAMESPACE}" --ignore-not-found
+  kubectl delete configmap/nacos-bootstrap-assets -n "${NAMESPACE}" --ignore-not-found
+  kubectl delete secret/nacos-bootstrap-db-auth -n "${NAMESPACE}" --ignore-not-found
+  kubectl delete job/nacos-db-bootstrap -n "${NAMESPACE}" --ignore-not-found
   kubectl delete servicemonitor/nacos -n "$(service_monitor_namespace)" --ignore-not-found
   success "Nacos resources removed from ${NAMESPACE}"
 }
@@ -495,6 +701,7 @@ uninstall_app() {
 status_app() {
   section "Nacos Status"
   kubectl get deployment,service,configmap,pods -n "${NAMESPACE}" -l app=nacos 2>/dev/null || true
+  kubectl get job -n "${NAMESPACE}" nacos-db-bootstrap 2>/dev/null || true
   if kubectl get crd servicemonitors.monitoring.coreos.com >/dev/null 2>&1; then
     kubectl get servicemonitor -n "$(service_monitor_namespace)" nacos 2>/dev/null || true
   fi

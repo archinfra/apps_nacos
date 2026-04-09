@@ -8,6 +8,8 @@ Nacos 单点部署离线交付仓库。
 - 统一入口：`install|uninstall|status|help`
 - GitHub Actions 自动构建
 - tag 自动发布 GitHub Release
+- 安装时可选执行 Nacos 数据库基线初始化
+- 安装时可选导入最新版 `cmict-share.yaml`
 
 ## 当前默认值
 
@@ -23,6 +25,8 @@ Nacos 单点部署离线交付仓库。
 - Nacos gRPC 端口暴露：`9848 -> 30930`
 - metrics：默认开启
 - ServiceMonitor：默认开启
+- 数据库基线初始化：默认开启
+- `cmict-share.yaml` 导入：默认开启
 
 ## 构建
 
@@ -75,6 +79,41 @@ Nacos 单点部署离线交付仓库。
   --disable-metrics \
   -y
 ```
+
+只部署 Nacos，不执行数据库初始化：
+
+```bash
+./nacos-installer-amd64.run install \
+  --mysql-password '<MYSQL_PASSWORD>' \
+  --disable-db-bootstrap \
+  --disable-cmict-share-import \
+  -y
+```
+
+## 基线资产
+
+- `frame_nacos_demo.sql`
+  这是清洗后的标准 SQL：
+  - 已改成幂等导入，不再包含 `DROP TABLE`
+  - 去掉了 `his_config_info` 历史数据
+  - 不再把业务配置固化进 `config_info`
+  - `cmict-share.yaml` 改为安装时单独导入，始终以文件最新版为准
+- `cmict-share.yaml`
+  这是安装器默认导入的最新版共享配置
+- `tools/normalize_nacos_sql.py`
+  后续如果你替换了原始 dump，可以用这个脚本重新生成标准 SQL
+- `import-nacos.sh`
+  手工重跑基线导入时可直接使用这个脚本，不必重新安装 Nacos
+
+## 安装流程
+
+`install` 现在默认会按这个顺序执行：
+
+1. 提取离线 payload 并准备镜像
+2. 用 MySQL helper Job 初始化 `frame_nacos_demo` 库和标准表结构
+3. 把 `cmict-share.yaml` 写入 `config_info`
+4. 部署 Nacos
+5. 等待 Deployment Ready
 
 ## GitHub Actions
 

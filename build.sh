@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="nacos"
-APP_VERSION="0.1.0"
+APP_VERSION="0.1.3"
 PACKAGE_PROFILE="integrated"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_DIR="${ROOT_DIR}/dist"
@@ -12,6 +12,8 @@ INSTALLER_STUB="${ROOT_DIR}/install.sh"
 MANIFESTS_DIR="${ROOT_DIR}/manifests"
 IMAGES_DIR="${ROOT_DIR}/images"
 IMAGE_JSON="${IMAGES_DIR}/image.json"
+BOOTSTRAP_SQL="${ROOT_DIR}/frame_nacos_demo.sql"
+BOOTSTRAP_CONFIG="${ROOT_DIR}/cmict-share.yaml"
 
 ARCHES=()
 
@@ -73,6 +75,8 @@ check_prereqs() {
   [[ -f "${INSTALLER_STUB}" ]] || die "missing install.sh"
   [[ -d "${MANIFESTS_DIR}" ]] || die "missing manifests/"
   [[ -f "${IMAGE_JSON}" ]] || die "missing images/image.json"
+  [[ -f "${BOOTSTRAP_SQL}" ]] || die "missing frame_nacos_demo.sql"
+  [[ -f "${BOOTSTRAP_CONFIG}" ]] || die "missing cmict-share.yaml"
   grep -q '^__PAYLOAD_BELOW__$' "${INSTALLER_STUB}" || die "install.sh must end with __PAYLOAD_BELOW__ marker"
 }
 
@@ -126,10 +130,12 @@ build_arch() {
 
   log "building ${installer_name}"
   rm -rf "${workdir}"
-  mkdir -p "${payload_dir}/images" "${payload_dir}/manifests" "${DIST_DIR}"
+  mkdir -p "${payload_dir}/images" "${payload_dir}/manifests" "${payload_dir}/bootstrap" "${DIST_DIR}"
 
   cp -R "${MANIFESTS_DIR}/." "${payload_dir}/manifests/"
   cp "${IMAGE_JSON}" "${payload_dir}/images/image.json"
+  cp "${BOOTSTRAP_SQL}" "${payload_dir}/bootstrap/frame_nacos_demo.sql"
+  cp "${BOOTSTRAP_CONFIG}" "${payload_dir}/bootstrap/cmict-share.yaml"
 
   generate_image_index "${arch}" "${image_index}"
 
