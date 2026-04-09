@@ -1,0 +1,358 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  data:
+    application.properties: |-
+
+      #*************** Spring Boot Related Configurations ***************#
+      ### Default web context path:
+      server.servlet.contextPath=/nacos
+      ### Include message field
+      server.error.include-message=ALWAYS
+      ### Default web server port:
+      server.port=8848
+
+      #*************** Network Related Configurations ***************#
+      ### If prefer hostname over ip for Nacos server addresses in cluster.conf:
+      # nacos.inetutils.prefer-hostname-over-ip=false
+
+      ### Specify local server's IP:
+      # nacos.inetutils.ip-address=
+
+
+      #*************** Config Module Related Configurations ***************#
+      ### If use MySQL as datasource:
+      spring.sql.init.platform=mysql
+
+      ### Count of DB:
+      db.num=1
+
+      ### Connect URL of DB:
+      db.url.0=__MYSQL_JDBC_URL__
+      db.user.0=__MYSQL_USER__
+      db.password.0=__MYSQL_PASSWORD__
+
+      ### Connection pool configuration: hikariCP
+      db.pool.config.connectionTimeout=30000
+      db.pool.config.validationTimeout=10000
+      db.pool.config.maximumPoolSize=20
+      db.pool.config.minimumIdle=2
+
+      #*************** Naming Module Related Configurations ***************#
+
+      ### If enable data warmup. If set to false, the server would accept request without local data preparation:
+      # nacos.naming.data.warmup=true
+
+      ### If enable the instance auto expiration, kind like of health check of instance:
+      # nacos.naming.expireInstance=true
+
+      ### Add in 2.0.0
+      ### The interval to clean empty service, unit: milliseconds.
+      # nacos.naming.clean.empty-service.interval=60000
+
+      ### The expired time to clean empty service, unit: milliseconds.
+      # nacos.naming.clean.empty-service.expired-time=60000
+
+      ### The interval to clean expired metadata, unit: milliseconds.
+      # nacos.naming.clean.expired-metadata.interval=5000
+
+      ### The expired time to clean metadata, unit: milliseconds.
+      # nacos.naming.clean.expired-metadata.expired-time=60000
+
+      ### The delay time before push task to execute from service changed, unit: milliseconds.
+      # nacos.naming.push.pushTaskDelay=500
+
+      ### The timeout for push task execute, unit: milliseconds.
+      # nacos.naming.push.pushTaskTimeout=5000
+
+      ### The delay time for retrying failed push task, unit: milliseconds.
+      # nacos.naming.push.pushTaskRetryDelay=1000
+
+      ### Since 2.0.3
+      ### The expired time for inactive client, unit: milliseconds.
+      # nacos.naming.client.expired.time=180000
+
+      #*************** CMDB Module Related Configurations ***************#
+      ### The interval to dump external CMDB in seconds:
+      # nacos.cmdb.dumpTaskInterval=3600
+
+      ### The interval of polling data change event in seconds:
+      # nacos.cmdb.eventTaskInterval=10
+
+      ### The interval of loading labels in seconds:
+      # nacos.cmdb.labelTaskInterval=300
+
+      ### If turn on data loading task:
+      # nacos.cmdb.loadDataAtStart=false
+
+
+      #*************** Metrics Related Configurations ***************#
+      ### Metrics for prometheus
+      __MANAGEMENT_ENDPOINTS_EXPOSURE_INCLUDE__
+
+      ### Metrics for elastic search
+      management.metrics.export.elastic.enabled=false
+      #management.metrics.export.elastic.host=http://localhost:9200
+
+      #*************** Access Log Related Configurations ***************#
+      ### If turn on the access log:
+      server.tomcat.accesslog.enabled=false
+
+      ### The access log pattern:
+      server.tomcat.accesslog.pattern=%h %l %u %t "%r" %s %b %D %{User-Agent}i %{Request-Source}i
+
+      ### The directory of access log:
+      server.tomcat.basedir=file:.
+
+      #*************** Access Control Related Configurations ***************#
+      ### If enable spring security, this option is deprecated in 1.2.0:
+      #spring.security.enabled=false
+
+      ### The ignore urls of auth
+      nacos.security.ignore.urls=/,/error,/**/*.css,/**/*.js,/**/*.html,/**/*.map,/**/*.svg,/**/*.png,/**/*.ico,/console-ui/public/**,/v1/auth/**,/v1/console/health/**,/actuator/**,/v1/console/server/**
+
+      ### The auth system to use, currently only 'nacos' and 'ldap' is supported:
+      nacos.core.auth.system.type=nacos
+
+      ### If turn on auth system:
+      nacos.core.auth.enabled=true
+
+      ### Turn on/off caching of auth information. By turning on this switch, the update of auth information would have a 15 seconds delay.
+      nacos.core.auth.caching.enabled=true
+
+      ### Since 1.4.1, Turn on/off white auth for user-agent: nacos-server, only for upgrade from old version.
+      nacos.core.auth.enable.userAgentAuthWhite=false
+
+      ### Since 1.4.1, worked when nacos.core.auth.enabled=true and nacos.core.auth.enable.userAgentAuthWhite=false.
+      ### The two properties is the white list for auth and used by identity the request from other server.
+      nacos.core.auth.server.identity.key=nacosKey
+      nacos.core.auth.server.identity.value=nacosValue
+
+      ### worked when nacos.core.auth.system.type=nacos
+      ### The token expiration in seconds:
+      nacos.core.auth.plugin.nacos.token.cache.enable=false
+      nacos.core.auth.plugin.nacos.token.expire.seconds=18000
+      ### The default token (Base64 String):
+      nacos.core.auth.plugin.nacos.token.secret.key=IVFBWkBXU1gzZWRjNHJmdjU2Q21pY3QuQGNoaW5hbW9iaWxlLmNwc3liLmpjY3A=
+
+      ### worked when nacos.core.auth.system.type=ldap，{0} is Placeholder,replace login username
+      #nacos.core.auth.ldap.url=ldap://localhost:389
+      #nacos.core.auth.ldap.basedc=dc=example,dc=org
+      #nacos.core.auth.ldap.userDn=cn=admin,${nacos.core.auth.ldap.basedc}
+      #nacos.core.auth.ldap.password=admin
+      #nacos.core.auth.ldap.userdn=cn={0},dc=example,dc=org
+      #nacos.core.auth.ldap.filter.prefix=uid
+      #nacos.core.auth.ldap.case.sensitive=true
+
+
+      #*************** Istio Related Configurations ***************#
+      ### If turn on the MCP server:
+      nacos.istio.mcp.server.enabled=false
+
+      #*************** Core Related Configurations ***************#
+
+      ### set the WorkerID manually
+      # nacos.core.snowflake.worker-id=
+
+      ### Member-MetaData
+      # nacos.core.member.meta.site=
+      # nacos.core.member.meta.adweight=
+      # nacos.core.member.meta.weight=
+
+      ### MemberLookup
+      ### Addressing pattern category, If set, the priority is highest
+      # nacos.core.member.lookup.type=[file,address-server]
+      ## Set the cluster list with a configuration file or command-line argument
+      # nacos.member.list=192.168.16.101:8847?raft_port=8807,192.168.16.101?raft_port=8808,192.168.16.101:8849?raft_port=8809
+      ## for AddressServerMemberLookup
+      # Maximum number of retries to query the address server upon initialization
+      # nacos.core.address-server.retry=5
+      ## Server domain name address of [address-server] mode
+      # address.server.domain=jmenv.tbsite.net
+      ## Server port of [address-server] mode
+      # address.server.port=8080
+      ## Request address of [address-server] mode
+      # address.server.url=/nacos/serverlist
+
+      #*************** JRaft Related Configurations ***************#
+
+      ### Sets the Raft cluster election timeout, default value is 5 second
+      # nacos.core.protocol.raft.data.election_timeout_ms=5000
+      ### Sets the amount of time the Raft snapshot will execute periodically, default is 30 minute
+      # nacos.core.protocol.raft.data.snapshot_interval_secs=30
+      ### raft internal worker threads
+      # nacos.core.protocol.raft.data.core_thread_num=8
+      ### Number of threads required for raft business request processing
+      # nacos.core.protocol.raft.data.cli_service_thread_num=4
+      ### raft linear read strategy. Safe linear reads are used by default, that is, the Leader tenure is confirmed by heartbeat
+      # nacos.core.protocol.raft.data.read_index_type=ReadOnlySafe
+      ### rpc request timeout, default 5 seconds
+      # nacos.core.protocol.raft.data.rpc_request_timeout_ms=5000
+
+      #*************** Distro Related Configurations ***************#
+
+      ### Distro data sync delay time, when sync task delayed, task will be merged for same data key. Default 1 second.
+      # nacos.core.protocol.distro.data.sync.delayMs=1000
+
+      ### Distro data sync timeout for one sync data, default 3 seconds.
+      # nacos.core.protocol.distro.data.sync.timeoutMs=3000
+
+      ### Distro data sync retry delay time when sync data failed or timeout, same behavior with delayMs, default 3 seconds.
+      # nacos.core.protocol.distro.data.sync.retryDelayMs=3000
+
+      ### Distro data verify interval time, verify synced data whether expired for a interval. Default 5 seconds.
+      # nacos.core.protocol.distro.data.verify.intervalMs=5000
+
+      ### Distro data verify timeout for one verify, default 3 seconds.
+      # nacos.core.protocol.distro.data.verify.timeoutMs=3000
+
+      ### Distro data load retry delay when load snapshot data failed, default 30 seconds.
+      # nacos.core.protocol.distro.data.load.retryDelayMs=30000
+
+      ### enable to support prometheus service discovery
+      nacos.prometheus.metrics.enabled=__PROMETHEUS_METRICS_ENABLED__
+  kind: ConfigMap
+  metadata:
+    annotations:
+    labels:
+      app: nacos
+    name: nacos-config
+    namespace: __NAMESPACE__
+- apiVersion: v1
+  data:
+    MODE: standalone
+  kind: ConfigMap
+  metadata:
+    annotations:
+    labels:
+      app: nacos
+    name: nacos
+    namespace: __NAMESPACE__
+kind: List
+metadata:
+  resourceVersion: ""
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: nacos
+  name: nacos
+  namespace: __NAMESPACE__
+spec:
+  progressDeadlineSeconds: 600
+  replicas: __REPLICAS__
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: nacos
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: nacos
+    spec:
+      containers:
+      - env:
+        - name: MODE
+          valueFrom:
+            configMapKeyRef:
+              key: MODE
+              name: nacos
+        - name: JAVA_TOOL_OPTIONS
+          value: "-XX:-UseContainerSupport"      
+        image: __IMAGE__
+        imagePullPolicy: __IMAGE_PULL_POLICY__
+        name: nacos
+        ports:
+        - containerPort: 8848
+          name: tcp-8848
+          protocol: TCP
+        - containerPort: 9848
+          name: tcp-9848
+          protocol: TCP
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /home/nacos/conf/application.properties
+          name: nacos-config
+          readOnly: true
+          subPath: application.properties
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: nacos-config
+        name: nacos-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: nacos
+  name: nacos
+  namespace: __NAMESPACE__
+spec:
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http-8848
+    nodePort: 30081
+    port: 8848
+    protocol: TCP
+    targetPort: 8848
+  - name: http-9848
+    nodePort: 30930
+    port: 9848
+    protocol: TCP
+    targetPort: 9848
+  selector:
+    app: nacos
+  sessionAffinity: None
+  type: NodePort
+---
+#__FEATURE_SERVICE_MONITOR_START__
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app: nacos
+    monitoring.archinfra.io/stack: default
+  name: nacos
+  namespace: __SERVICE_MONITOR_NAMESPACE__
+spec:
+  endpoints:
+  - interval: __SERVICE_MONITOR_INTERVAL__
+    path: /nacos/actuator/prometheus
+    port: http-8848
+    scrapeTimeout: __SERVICE_MONITOR_SCRAPE_TIMEOUT__
+  namespaceSelector:
+    matchNames:
+    - __NAMESPACE__
+  selector:
+    matchLabels:
+      app: nacos
+#__FEATURE_SERVICE_MONITOR_END__
