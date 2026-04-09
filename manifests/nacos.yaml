@@ -320,7 +320,7 @@ spec:
   ipFamilyPolicy: SingleStack
   ports:
   - name: http-8848
-    nodePort: 30081
+    nodePort: __NODE_PORT__
     port: 8848
     protocol: TCP
     targetPort: 8848

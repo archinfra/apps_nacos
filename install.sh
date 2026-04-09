@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="nacos"
-APP_VERSION="0.1.1"
+APP_VERSION="0.1.2"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 IMAGE_DIR="${WORKDIR}/images"
@@ -36,6 +36,7 @@ SERVICE_MONITOR_NAMESPACE=""
 SERVICE_MONITOR_INTERVAL="30s"
 SERVICE_MONITOR_SCRAPE_TIMEOUT="10s"
 WAIT_TIMEOUT="10m"
+NODE_PORT="30094"
 AUTO_YES="false"
 
 RED='\033[0;31m'
@@ -101,6 +102,7 @@ Core options:
   --mysql-database <name>              MySQL database, default: ${MYSQL_DATABASE}
   --mysql-user <name>                  MySQL user, default: ${MYSQL_USER}
   --mysql-password <pwd>               MySQL password, required for install
+  --node-port <port>                   Nacos 8848 NodePort, default: ${NODE_PORT}
   --image <image>                      Override Nacos image
   --registry <repo>                    Target registry repo prefix, default: ${REGISTRY_REPO}
   --registry-user <user>               Optional docker registry username
@@ -172,6 +174,11 @@ parse_args() {
       --mysql-password)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         MYSQL_PASSWORD="$2"
+        shift 2
+        ;;
+      --node-port)
+        [[ $# -ge 2 ]] || die "$1 requires a value"
+        NODE_PORT="$2"
         shift 2
         ;;
       --image)
@@ -265,6 +272,13 @@ require_install_args() {
   [[ -n "${MYSQL_PASSWORD}" ]] || die "--mysql-password is required for install"
 }
 
+validate_config() {
+  [[ "${NODE_PORT}" =~ ^[0-9]+$ ]] || die "--node-port must be a number"
+  if (( NODE_PORT < 30000 || NODE_PORT > 32767 )); then
+    die "--node-port must be between 30000 and 32767"
+  fi
+}
+
 check_deps() {
   command -v kubectl >/dev/null 2>&1 || die "kubectl is required"
 
@@ -281,6 +295,7 @@ confirm() {
   echo "Namespace: ${NAMESPACE}"
   echo "Replicas: ${REPLICAS}"
   echo "MySQL: ${MYSQL_USER}@${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}"
+  echo "NodePort: ${NODE_PORT}"
   echo "Image: ${IMAGE}"
   echo "Enable metrics: ${ENABLE_METRICS}"
   echo "Enable ServiceMonitor: ${ENABLE_SERVICEMONITOR}"
@@ -437,6 +452,7 @@ render_yaml() {
     -e "s|__MYSQL_JDBC_URL__|$(escape_sed_replacement "$(mysql_jdbc_url)")|g" \
     -e "s|__MYSQL_USER__|$(escape_sed_replacement "${MYSQL_USER}")|g" \
     -e "s|__MYSQL_PASSWORD__|$(escape_sed_replacement "${MYSQL_PASSWORD}")|g" \
+    -e "s|__NODE_PORT__|$(escape_sed_replacement "${NODE_PORT}")|g" \
     -e "s|__IMAGE__|$(escape_sed_replacement "${IMAGE}")|g" \
     -e "s|__IMAGE_PULL_POLICY__|$(escape_sed_replacement "${IMAGE_PULL_POLICY}")|g" \
     -e "s|__MANAGEMENT_ENDPOINTS_EXPOSURE_INCLUDE__|$(escape_sed_replacement "${metrics_line}")|g" \
@@ -500,6 +516,7 @@ main() {
   esac
 
   check_deps
+  validate_config
 
   case "${ACTION}" in
     install) install_app ;;

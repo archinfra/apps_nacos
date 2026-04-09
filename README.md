@@ -2,12 +2,12 @@
 
 Nacos 单点部署离线交付仓库。
 
-这套仓库沿用你现有的 Nacos 版本和业务预设，只把交付方式整理成和 MySQL / Redis / MinIO 一样的模式：
+这套仓库沿用你现有的 Nacos 版本和业务默认值，只把交付方式整理成和 MySQL、Redis、MinIO 一致的模式：
 
-- 多架构离线 `.run` 包
-- `install|uninstall|status|help` 统一入口
-- GitHub Actions 自动构建 `amd64` / `arm64`
-- tag 自动产出 release 资产
+- 多架构离线 `.run` 包，支持 `amd64` 和 `arm64`
+- 统一入口：`install|uninstall|status|help`
+- GitHub Actions 自动构建
+- tag 自动发布 GitHub Release
 
 ## 当前默认值
 
@@ -15,11 +15,12 @@ Nacos 单点部署离线交付仓库。
 - 镜像：`sealos.hub:5000/kube4/nacos-server:v2.3.0-slim`
 - MySQL 主机：`mysql-0.mysql.aict`
 - MySQL 端口：`3306`
-- MySQL 库：`frame_nacos_demo`
+- MySQL 数据库：`frame_nacos_demo`
 - MySQL 用户：`root`
 - 副本数：`1`
 - Service 类型：`NodePort`
-- 端口：`8848 -> 30081`，`9848 -> 30930`
+- Nacos HTTP NodePort：`30094`
+- Nacos gRPC 端口暴露：`9848 -> 30930`
 - metrics：默认开启
 - ServiceMonitor：默认开启
 
@@ -40,11 +41,20 @@ Nacos 单点部署离线交付仓库。
 
 ## 使用
 
-默认安装：
+按默认值安装：
 
 ```bash
 ./nacos-installer-amd64.run install \
   --mysql-password '<MYSQL_PASSWORD>' \
+  -y
+```
+
+显式指定 HTTP NodePort：
+
+```bash
+./nacos-installer-amd64.run install \
+  --mysql-password '<MYSQL_PASSWORD>' \
+  --node-port 30094 \
   -y
 ```
 
@@ -68,12 +78,12 @@ Nacos 单点部署离线交付仓库。
 
 ## GitHub Actions
 
-- `push` 到 `main` / `master`：构建多架构离线包
+- `push` 到 `main` 或 `master`：构建多架构离线包
 - `push` tag `v*`：构建并发布 GitHub Release
 - `workflow_dispatch`：手动触发
 
 ## 说明
 
 - 运行时不依赖 `jq`
-- payload 提取逻辑已改成稳健实现，避免 `.run` 包在目标机上出现 `gzip: stdin: not in gzip format`
+- payload 提取逻辑已做稳健化处理，避免 `.run` 包在目标机上出现 `gzip: stdin: not in gzip format`
 - 如果集群未安装 Prometheus Operator CRD，安装器会自动跳过 `ServiceMonitor`
