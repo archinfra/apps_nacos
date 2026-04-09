@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="nacos"
-APP_VERSION="0.1.0"
+APP_VERSION="0.1.1"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 IMAGE_DIR="${WORKDIR}/images"
@@ -17,7 +17,7 @@ IMAGE_TAG="v2.3.0-slim"
 ACTION="help"
 NAMESPACE="aict"
 REPLICAS="1"
-MYSQL_HOST="mysql.aict"
+MYSQL_HOST="mysql-0.mysql.aict"
 MYSQL_PORT="3306"
 MYSQL_DATABASE="frame_nacos_demo"
 MYSQL_USER="root"
@@ -30,8 +30,8 @@ REGISTRY_USER=""
 REGISTRY_PASSWORD=""
 SKIP_IMAGE_PREPARE="false"
 IMAGE_PULL_POLICY="IfNotPresent"
-ENABLE_METRICS="false"
-ENABLE_SERVICEMONITOR="false"
+ENABLE_METRICS="true"
+ENABLE_SERVICEMONITOR="true"
 SERVICE_MONITOR_NAMESPACE=""
 SERVICE_MONITOR_INTERVAL="30s"
 SERVICE_MONITOR_SCRAPE_TIMEOUT="10s"
@@ -111,9 +111,9 @@ Core options:
   -y, --yes                            Skip confirmation
 
 Monitoring:
-  --enable-metrics                     Enable Nacos Prometheus endpoint
+  --enable-metrics                     Enable Nacos Prometheus endpoint, default: ${ENABLE_METRICS}
   --disable-metrics                    Disable Nacos Prometheus endpoint
-  --enable-servicemonitor              Create ServiceMonitor and auto-enable metrics
+  --enable-servicemonitor              Create ServiceMonitor, default: ${ENABLE_SERVICEMONITOR}
   --disable-servicemonitor             Disable ServiceMonitor
   --service-monitor-namespace <ns>     Namespace for ServiceMonitor, default: app namespace
   --service-monitor-interval <value>   ServiceMonitor interval, default: ${SERVICE_MONITOR_INTERVAL}
@@ -121,7 +121,7 @@ Monitoring:
 
 Examples:
   ${cmd} install --mysql-password '<MYSQL_PASSWORD>' -y
-  ${cmd} install --mysql-host mysql.aict --mysql-password '<MYSQL_PASSWORD>' --enable-servicemonitor -y
+  ${cmd} install --mysql-host ${MYSQL_HOST} --mysql-password '<MYSQL_PASSWORD>' -y
   ${cmd} status -n ${NAMESPACE}
   ${cmd} uninstall -n ${NAMESPACE} -y
 EOF
@@ -217,6 +217,7 @@ parse_args() {
         ;;
       --disable-metrics)
         ENABLE_METRICS="false"
+        ENABLE_SERVICEMONITOR="false"
         shift
         ;;
       --enable-servicemonitor)
@@ -290,11 +291,28 @@ confirm() {
 }
 
 payload_start_offset() {
-  local marker="__PAYLOAD_BELOW__"
-  local offset
-  offset="$(LC_ALL=C grep -abo -m1 "${marker}" "$0" | head -n1 | cut -d: -f1)"
-  [[ -n "${offset}" ]] || return 1
-  echo $((offset + ${#marker} + 1))
+  local marker_line payload_offset skip_bytes byte_hex
+  marker_line="$(awk '/^__PAYLOAD_BELOW__$/ { print NR; exit }' "$0")"
+  [[ -n "${marker_line}" ]] || return 1
+  payload_offset="$(( $(head -n "${marker_line}" "$0" | wc -c | tr -d ' ') + 1 ))"
+
+  skip_bytes=0
+  while :; do
+    byte_hex="$(dd if="$0" bs=1 skip="$((payload_offset + skip_bytes - 1))" count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+    case "${byte_hex}" in
+      0a|0d)
+        skip_bytes=$((skip_bytes + 1))
+        ;;
+      "")
+        return 1
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  printf '%s' "$((payload_offset + skip_bytes))"
 }
 
 extract_payload() {
@@ -304,7 +322,7 @@ extract_payload() {
   mkdir -p "${IMAGE_DIR}" "${MANIFEST_DIR}"
 
   offset="$(payload_start_offset)" || die "failed to find payload marker"
-  tail -c +"$((offset + 1))" "$0" | tar -xzf - -C "${WORKDIR}" || die "failed to extract payload"
+  tail -c +"${offset}" "$0" | tar -xzf - -C "${WORKDIR}" || die "failed to extract payload"
 
   [[ -f "${YAML_FILE}" ]] || die "missing manifest file"
   [[ -f "${IMAGE_INDEX}" ]] || die "missing image index"

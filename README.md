@@ -2,23 +2,26 @@
 
 Nacos 单点部署离线交付仓库。
 
-这次改造沿用了你现有的业务默认值，没有升级 Nacos 版本，核心目标是把它整理成和 MySQL / Redis / MinIO 一样的交付方式：
+这套仓库沿用你现有的 Nacos 版本和业务预设，只把交付方式整理成和 MySQL / Redis / MinIO 一样的模式：
 
 - 多架构离线 `.run` 包
 - `install|uninstall|status|help` 统一入口
 - GitHub Actions 自动构建 `amd64` / `arm64`
 - tag 自动产出 release 资产
 
-## 保留的默认值
+## 当前默认值
 
 - 命名空间：`aict`
 - 镜像：`sealos.hub:5000/kube4/nacos-server:v2.3.0-slim`
-- MySQL 默认地址：`mysql.aict:3306`
-- MySQL 默认库：`frame_nacos_demo`
-- MySQL 默认用户：`root`
+- MySQL 主机：`mysql-0.mysql.aict`
+- MySQL 端口：`3306`
+- MySQL 库：`frame_nacos_demo`
+- MySQL 用户：`root`
 - 副本数：`1`
 - Service 类型：`NodePort`
 - 端口：`8848 -> 30081`，`9848 -> 30930`
+- metrics：默认开启
+- ServiceMonitor：默认开启
 
 ## 构建
 
@@ -37,6 +40,8 @@ Nacos 单点部署离线交付仓库。
 
 ## 使用
 
+默认安装：
+
 ```bash
 ./nacos-installer-amd64.run install \
   --mysql-password '<MYSQL_PASSWORD>' \
@@ -52,12 +57,12 @@ Nacos 单点部署离线交付仓库。
   -y
 ```
 
-如果要启用 Prometheus 抓取：
+显式关闭监控：
 
 ```bash
 ./nacos-installer-amd64.run install \
   --mysql-password '<MYSQL_PASSWORD>' \
-  --enable-servicemonitor \
+  --disable-metrics \
   -y
 ```
 
@@ -70,5 +75,5 @@ Nacos 单点部署离线交付仓库。
 ## 说明
 
 - 运行时不依赖 `jq`
-- `ServiceMonitor` 默认关闭，不会改变你现有部署默认行为
+- payload 提取逻辑已改成稳健实现，避免 `.run` 包在目标机上出现 `gzip: stdin: not in gzip format`
 - 如果集群未安装 Prometheus Operator CRD，安装器会自动跳过 `ServiceMonitor`
