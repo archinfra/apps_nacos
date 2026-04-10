@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="nacos"
-APP_VERSION="0.1.3"
+APP_VERSION="0.1.4"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 IMAGE_DIR="${WORKDIR}/images"
@@ -600,15 +600,15 @@ spec:
           if [ '${ENABLE_CMICT_SHARE_IMPORT}' = 'true' ]; then
             CMICT_SHARE_CONTENT="\$(sed \"s/'/''/g\" /bootstrap/cmict-share.yaml)"
             CMICT_SHARE_MD5="\$(md5sum /bootstrap/cmict-share.yaml | awk '{print \$1}')"
-            mysql --protocol=TCP -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" "${MYSQL_DATABASE}" <<SQL
-REPLACE INTO config_info (
-  data_id, group_id, content, md5, gmt_create, gmt_modified,
-  src_user, src_ip, app_name, tenant_id, c_desc, c_use, effect, type, c_schema, encrypted_data_key
-) VALUES (
-  '${CMICT_SHARE_DATA_ID}', '${CMICT_SHARE_GROUP}', '\${CMICT_SHARE_CONTENT}', '\${CMICT_SHARE_MD5}', NOW(), NOW(),
-  'nacos-installer', '127.0.0.1', NULL, '', NULL, NULL, NULL, 'yaml', NULL, ''
-);
-SQL
+            mysql --protocol=TCP -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" "${MYSQL_DATABASE}" --execute="
+              REPLACE INTO config_info (
+                data_id, group_id, content, md5, gmt_create, gmt_modified,
+                src_user, src_ip, app_name, tenant_id, c_desc, c_use, effect, type, c_schema, encrypted_data_key
+              ) VALUES (
+                '${CMICT_SHARE_DATA_ID}', '${CMICT_SHARE_GROUP}', '\${CMICT_SHARE_CONTENT}', '\${CMICT_SHARE_MD5}', NOW(), NOW(),
+                'nacos-installer', '127.0.0.1', NULL, '', NULL, NULL, NULL, 'yaml', NULL, ''
+              );
+            "
           fi
         volumeMounts:
         - name: bootstrap-assets
