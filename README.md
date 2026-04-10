@@ -63,10 +63,27 @@ Nacos 单点离线交付仓库。
 - Nacos gRPC NodePort: `30930`
 - metrics: `true`
 - ServiceMonitor: `true`
+- resource profile: `mid`
+
+`--resource-profile` supports `low|mid|midd|high`.
+
+- `low`: demo or lightweight verification
+- `mid`: normal shared environment, baseline for `500-1000` concurrency and about `10000` users
+- `high`: higher concurrency or heavier config-center load
 - DB bootstrap: `true`
 - `cmict-share.yaml` import: `true`
 - target registry repo: `sealos.hub:5000/kube4`
 - wait timeout: `10m`
+
+Per-profile baseline:
+
+| Profile | Nacos Deployment |
+| --- | --- |
+| `low` | `200m / 512Mi` request, `500m / 1Gi` limit |
+| `mid` | `500m / 1Gi` request, `1 / 2Gi` limit |
+| `high` | `1 / 2Gi` request, `2 / 4Gi` limit |
+
+Total steady-state demand is the same as the single deployment above because Nacos defaults to one replica. The bootstrap job is temporary and does not change the steady-state total.
 
 这是一套 “单点 Nacos + 外部 MySQL + 默认开启监控 + 默认导入业务基线配置” 的交付方案。
 
@@ -198,19 +215,19 @@ Nacos 默认连接这组数据库参数：
 
 Nacos 主容器当前显式声明：
 
-- CPU request: `100m`
-- Memory request: `128Mi`
-- CPU limit: `2`
-- Memory limit: `4Gi`
+- CPU request: `500m`
+- Memory request: `1Gi`
+- CPU limit: `1`
+- Memory limit: `2Gi`
 
 当前默认是单副本，因此默认持续资源需求就是：
 
 | 项目 | 默认值 |
 | --- | --- |
-| CPU request | `100m` |
-| Memory request | `128Mi` |
-| CPU limit | `2` |
-| Memory limit | `4Gi` |
+| CPU request | `500m` |
+| Memory request | `1Gi` |
+| CPU limit | `1` |
+| Memory limit | `2Gi` |
 
 ### 启动期额外资源
 

@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="nacos"
-APP_VERSION="0.1.4"
+APP_VERSION="0.1.5"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 IMAGE_DIR="${WORKDIR}/images"
@@ -40,11 +40,17 @@ SERVICE_MONITOR_INTERVAL="30s"
 SERVICE_MONITOR_SCRAPE_TIMEOUT="10s"
 WAIT_TIMEOUT="10m"
 NODE_PORT="30094"
+RESOURCE_PROFILE="mid"
 ENABLE_DB_BOOTSTRAP="true"
 ENABLE_CMICT_SHARE_IMPORT="true"
 CMICT_SHARE_DATA_ID="cmict-share.yaml"
 CMICT_SHARE_GROUP="DEFAULT_GROUP"
 AUTO_YES="false"
+
+NACOS_REQUEST_CPU="${NACOS_REQUEST_CPU:-500m}"
+NACOS_REQUEST_MEM="${NACOS_REQUEST_MEM:-1Gi}"
+NACOS_LIMIT_CPU="${NACOS_LIMIT_CPU:-1}"
+NACOS_LIMIT_MEM="${NACOS_LIMIT_MEM:-2Gi}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -113,6 +119,7 @@ Core options:
   --mysql-user <name>                  MySQL user, default: ${MYSQL_USER}
   --mysql-password <pwd>               MySQL password, required for install
   --node-port <port>                   Nacos 8848 NodePort, default: ${NODE_PORT}
+  --resource-profile <name>            Resource profile: low|mid|midd|high, default: ${RESOURCE_PROFILE}
   --image <image>                      Override Nacos image
   --registry <repo>                    Target registry repo prefix, default: ${REGISTRY_REPO}
   --registry-user <user>               Optional docker registry username
@@ -141,6 +148,7 @@ Bootstrap:
 
 Examples:
   ${cmd} install --mysql-password '<MYSQL_PASSWORD>' -y
+  ${cmd} install --resource-profile high --mysql-password '<MYSQL_PASSWORD>' -y
   ${cmd} install --mysql-host ${MYSQL_HOST} --mysql-password '<MYSQL_PASSWORD>' -y
   ${cmd} install --disable-db-bootstrap --mysql-password '<MYSQL_PASSWORD>' -y
   ${cmd} status -n ${NAMESPACE}
@@ -198,6 +206,11 @@ parse_args() {
       --node-port)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         NODE_PORT="$2"
+        shift 2
+        ;;
+      --resource-profile)
+        [[ $# -ge 2 ]] || die "$1 requires a value"
+        RESOURCE_PROFILE="$2"
         shift 2
         ;;
       --image)
@@ -318,6 +331,33 @@ require_install_args() {
 }
 
 validate_config() {
+  case "${RESOURCE_PROFILE,,}" in
+    low)
+      RESOURCE_PROFILE="low"
+      NACOS_REQUEST_CPU="200m"
+      NACOS_REQUEST_MEM="512Mi"
+      NACOS_LIMIT_CPU="500m"
+      NACOS_LIMIT_MEM="1Gi"
+      ;;
+    mid|midd|middle|medium)
+      RESOURCE_PROFILE="mid"
+      NACOS_REQUEST_CPU="500m"
+      NACOS_REQUEST_MEM="1Gi"
+      NACOS_LIMIT_CPU="1"
+      NACOS_LIMIT_MEM="2Gi"
+      ;;
+    high)
+      RESOURCE_PROFILE="high"
+      NACOS_REQUEST_CPU="1"
+      NACOS_REQUEST_MEM="2Gi"
+      NACOS_LIMIT_CPU="2"
+      NACOS_LIMIT_MEM="4Gi"
+      ;;
+    *)
+      die "--resource-profile only supports low|mid|midd|high"
+      ;;
+  esac
+
   [[ "${NODE_PORT}" =~ ^[0-9]+$ ]] || die "--node-port must be a number"
   if (( NODE_PORT < 30000 || NODE_PORT > 32767 )); then
     die "--node-port must be between 30000 and 32767"
@@ -343,6 +383,7 @@ confirm() {
   echo "Replicas: ${REPLICAS}"
   echo "MySQL: ${MYSQL_USER}@${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}"
   echo "NodePort: ${NODE_PORT}"
+  echo "Resource profile: ${RESOURCE_PROFILE}"
   echo "Image: ${IMAGE}"
   echo "Enable metrics: ${ENABLE_METRICS}"
   echo "Enable ServiceMonitor: ${ENABLE_SERVICEMONITOR}"
@@ -654,6 +695,10 @@ render_yaml() {
     -e "s|__MYSQL_USER__|$(escape_sed_replacement "${MYSQL_USER}")|g" \
     -e "s|__MYSQL_PASSWORD__|$(escape_sed_replacement "${MYSQL_PASSWORD}")|g" \
     -e "s|__NODE_PORT__|$(escape_sed_replacement "${NODE_PORT}")|g" \
+    -e "s|__NACOS_REQUEST_CPU__|$(escape_sed_replacement "${NACOS_REQUEST_CPU}")|g" \
+    -e "s|__NACOS_REQUEST_MEM__|$(escape_sed_replacement "${NACOS_REQUEST_MEM}")|g" \
+    -e "s|__NACOS_LIMIT_CPU__|$(escape_sed_replacement "${NACOS_LIMIT_CPU}")|g" \
+    -e "s|__NACOS_LIMIT_MEM__|$(escape_sed_replacement "${NACOS_LIMIT_MEM}")|g" \
     -e "s|__IMAGE__|$(escape_sed_replacement "${IMAGE}")|g" \
     -e "s|__IMAGE_PULL_POLICY__|$(escape_sed_replacement "${IMAGE_PULL_POLICY}")|g" \
     -e "s|__MANAGEMENT_ENDPOINTS_EXPOSURE_INCLUDE__|$(escape_sed_replacement "${metrics_line}")|g" \

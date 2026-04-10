@@ -279,11 +279,11 @@ spec:
           protocol: TCP
         resources:
           limits:
-            cpu: "2"
-            memory: 4Gi
+            cpu: __NACOS_LIMIT_CPU__
+            memory: __NACOS_LIMIT_MEM__
           requests:
-            cpu: 100m
-            memory: 128Mi
+            cpu: __NACOS_REQUEST_CPU__
+            memory: __NACOS_REQUEST_MEM__
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
