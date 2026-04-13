@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="nacos"
-APP_VERSION="0.1.5"
+APP_VERSION="0.1.6"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 IMAGE_DIR="${WORKDIR}/images"
@@ -639,14 +639,16 @@ spec:
             mysql --protocol=TCP -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" "${MYSQL_DATABASE}" < /bootstrap/frame_nacos_demo.sql
           fi
           if [ '${ENABLE_CMICT_SHARE_IMPORT}' = 'true' ]; then
-            CMICT_SHARE_CONTENT="\$(sed \"s/'/''/g\" /bootstrap/cmict-share.yaml)"
-            CMICT_SHARE_MD5="\$(md5sum /bootstrap/cmict-share.yaml | awk '{print \$1}')"
+            CMICT_SHARE_B64="\$(base64 /bootstrap/cmict-share.yaml | tr -d '\n')"
             mysql --protocol=TCP -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" "${MYSQL_DATABASE}" --execute="
               REPLACE INTO config_info (
                 data_id, group_id, content, md5, gmt_create, gmt_modified,
                 src_user, src_ip, app_name, tenant_id, c_desc, c_use, effect, type, c_schema, encrypted_data_key
               ) VALUES (
-                '${CMICT_SHARE_DATA_ID}', '${CMICT_SHARE_GROUP}', '\${CMICT_SHARE_CONTENT}', '\${CMICT_SHARE_MD5}', NOW(), NOW(),
+                '${CMICT_SHARE_DATA_ID}', '${CMICT_SHARE_GROUP}',
+                CONVERT(FROM_BASE64('\${CMICT_SHARE_B64}') USING utf8mb4),
+                MD5(CONVERT(FROM_BASE64('\${CMICT_SHARE_B64}') USING utf8mb4)),
+                NOW(), NOW(),
                 'nacos-installer', '127.0.0.1', NULL, '', NULL, NULL, NULL, 'yaml', NULL, ''
               );
             "
