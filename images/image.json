@@ -7,24 +7,10 @@
     "tar": "nacos-server-amd64.tar"
   },
   {
-    "arch": "amd64",
-    "platform": "linux/amd64",
-    "pull": "registry.cn-beijing.aliyuncs.com/kube4/mysql:8.0.45",
-    "tag": "sealos.hub:5000/kube4/mysql:8.0.45",
-    "tar": "mysql-client-amd64.tar"
-  },
-  {
     "arch": "arm64",
     "platform": "linux/arm64",
     "pull": "registry.cn-beijing.aliyuncs.com/kube4/nacos-server:v2.3.0-slim",
     "tag": "sealos.hub:5000/kube4/nacos-server:v2.3.0-slim",
     "tar": "nacos-server-arm64.tar"
-  },
-  {
-    "arch": "arm64",
-    "platform": "linux/arm64",
-    "pull": "registry.cn-beijing.aliyuncs.com/kube4/mysql:8.0.45",
-    "tag": "sealos.hub:5000/kube4/mysql:8.0.45",
-    "tar": "mysql-client-arm64.tar"
   }
 ]

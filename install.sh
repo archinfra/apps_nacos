@@ -3,16 +3,18 @@
 set -Eeuo pipefail
 
 APP_NAME="nacos"
-APP_VERSION="0.1.6"
+APP_VERSION="0.1.8"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 IMAGE_DIR="${WORKDIR}/images"
 MANIFEST_DIR="${WORKDIR}/manifests"
 BOOTSTRAP_DIR="${WORKDIR}/bootstrap"
+TOOLS_DIR="${WORKDIR}/tools"
 IMAGE_INDEX="${IMAGE_DIR}/image-index.tsv"
 YAML_FILE="${MANIFEST_DIR}/nacos.yaml"
 BOOTSTRAP_SQL_FILE="${BOOTSTRAP_DIR}/frame_nacos_demo.sql"
 CMICT_SHARE_FILE="${BOOTSTRAP_DIR}/cmict-share.yaml"
+IMPORT_SCRIPT_FILE="${TOOLS_DIR}/import-nacos.sh"
 
 IMAGE_NAME="nacos-server"
 IMAGE_TAG="v2.3.0-slim"
@@ -21,6 +23,11 @@ ACTION="help"
 NAMESPACE="aict"
 REPLICAS="1"
 MYSQL_HOST="mysql-0.mysql.aict"
+MYSQL_NAMESPACE="${NAMESPACE}"
+MYSQL_NAMESPACE_EXPLICIT="false"
+MYSQL_POD=""
+MYSQL_LABEL="app=mysql"
+MYSQL_CONTAINER="mysql"
 MYSQL_PORT="3306"
 MYSQL_DATABASE="frame_nacos_demo"
 MYSQL_USER="root"
@@ -61,7 +68,6 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 NACOS_IMAGE_REF=""
-MYSQL_HELPER_IMAGE_REF=""
 
 log() {
   echo -e "${CYAN}[INFO]${NC} $*"
@@ -114,6 +120,10 @@ Core options:
   -n, --namespace <ns>                 Namespace, default: ${NAMESPACE}
   --replicas <num>                     Replica count, default: ${REPLICAS}
   --mysql-host <host>                  MySQL host, default: ${MYSQL_HOST}
+  --mysql-namespace <ns>               MySQL pod namespace for kubectl import, default: ${MYSQL_NAMESPACE}
+  --mysql-pod <name>                   Explicit MySQL pod name for kubectl import, default: auto detect from host/label
+  --mysql-label <label>                MySQL pod selector fallback, default: ${MYSQL_LABEL}
+  --mysql-container <name>             MySQL container name, default: ${MYSQL_CONTAINER}
   --mysql-port <port>                  MySQL port, default: ${MYSQL_PORT}
   --mysql-database <name>              MySQL database, default: ${MYSQL_DATABASE}
   --mysql-user <name>                  MySQL user, default: ${MYSQL_USER}
@@ -171,6 +181,9 @@ parse_args() {
       -n|--namespace)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         NAMESPACE="$2"
+        if [[ "${MYSQL_NAMESPACE_EXPLICIT}" != "true" ]]; then
+          MYSQL_NAMESPACE="$2"
+        fi
         shift 2
         ;;
       --replicas)
@@ -181,6 +194,27 @@ parse_args() {
       --mysql-host)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         MYSQL_HOST="$2"
+        shift 2
+        ;;
+      --mysql-namespace)
+        [[ $# -ge 2 ]] || die "$1 requires a value"
+        MYSQL_NAMESPACE="$2"
+        MYSQL_NAMESPACE_EXPLICIT="true"
+        shift 2
+        ;;
+      --mysql-pod)
+        [[ $# -ge 2 ]] || die "$1 requires a value"
+        MYSQL_POD="$2"
+        shift 2
+        ;;
+      --mysql-label)
+        [[ $# -ge 2 ]] || die "$1 requires a value"
+        MYSQL_LABEL="$2"
+        shift 2
+        ;;
+      --mysql-container)
+        [[ $# -ge 2 ]] || die "$1 requires a value"
+        MYSQL_CONTAINER="$2"
         shift 2
         ;;
       --mysql-port)
@@ -382,6 +416,7 @@ confirm() {
   echo "Namespace: ${NAMESPACE}"
   echo "Replicas: ${REPLICAS}"
   echo "MySQL: ${MYSQL_USER}@${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}"
+  echo "MySQL import target: namespace=${MYSQL_NAMESPACE} pod=${MYSQL_POD:-auto} label=${MYSQL_LABEL} container=${MYSQL_CONTAINER}"
   echo "NodePort: ${NODE_PORT}"
   echo "Resource profile: ${RESOURCE_PROFILE}"
   echo "Image: ${IMAGE}"
@@ -424,7 +459,7 @@ extract_payload() {
   local offset
   section "Extract Payload"
   rm -rf "${WORKDIR}"
-  mkdir -p "${IMAGE_DIR}" "${MANIFEST_DIR}" "${BOOTSTRAP_DIR}"
+  mkdir -p "${IMAGE_DIR}" "${MANIFEST_DIR}" "${BOOTSTRAP_DIR}" "${TOOLS_DIR}"
 
   offset="$(payload_start_offset)" || die "failed to find payload marker"
   tail -c +"${offset}" "$0" | tar -xzf - -C "${WORKDIR}" || die "failed to extract payload"
@@ -433,6 +468,8 @@ extract_payload() {
   [[ -f "${IMAGE_INDEX}" ]] || die "missing image index"
   [[ -f "${BOOTSTRAP_SQL_FILE}" ]] || die "missing bootstrap SQL file"
   [[ -f "${CMICT_SHARE_FILE}" ]] || die "missing cmict-share config file"
+  [[ -f "${IMPORT_SCRIPT_FILE}" ]] || die "missing import script"
+  chmod +x "${IMPORT_SCRIPT_FILE}" || true
 }
 
 target_registry_host() {
@@ -466,9 +503,6 @@ resolve_target_ref() {
     nacos-server-*.tar)
       printf '%s\n' "${IMAGE}"
       ;;
-    mysql-client-*.tar)
-      target_ref_from_default "${default_ref}"
-      ;;
     *)
       target_ref_from_default "${default_ref}"
       ;;
@@ -482,14 +516,10 @@ load_image_metadata() {
       nacos-server-*.tar)
         NACOS_IMAGE_REF="$(resolve_target_ref "${tar_name}" "${default_target_ref}")"
         ;;
-      mysql-client-*.tar)
-        MYSQL_HELPER_IMAGE_REF="$(resolve_target_ref "${tar_name}" "${default_target_ref}")"
-        ;;
     esac
   done < "${IMAGE_INDEX}"
 
   [[ -n "${NACOS_IMAGE_REF}" ]] || die "failed to resolve nacos image"
-  [[ -n "${MYSQL_HELPER_IMAGE_REF}" ]] || die "failed to resolve mysql helper image"
 }
 
 prepare_images() {
@@ -564,105 +594,40 @@ wait_for_job() {
 }
 
 bootstrap_database() {
-  local cm_name="nacos-bootstrap-assets"
-  local secret_name="nacos-bootstrap-db-auth"
-  local job_name="nacos-db-bootstrap"
+  local import_args=()
 
   if [[ "${ENABLE_DB_BOOTSTRAP}" != "true" && "${ENABLE_CMICT_SHARE_IMPORT}" != "true" ]]; then
     return 0
   fi
 
   section "Bootstrap Nacos Database"
-  kubectl delete job "${job_name}" -n "${NAMESPACE}" --ignore-not-found --wait >/dev/null 2>&1 || true
-  kubectl create secret generic "${secret_name}" \
-    -n "${NAMESPACE}" \
-    --from-literal=mysql-host="${MYSQL_HOST}" \
-    --from-literal=mysql-port="${MYSQL_PORT}" \
-    --from-literal=mysql-database="${MYSQL_DATABASE}" \
-    --from-literal=mysql-user="${MYSQL_USER}" \
-    --from-literal=mysql-password="${MYSQL_PASSWORD}" \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl create configmap "${cm_name}" \
-    -n "${NAMESPACE}" \
-    --from-file=frame_nacos_demo.sql="${BOOTSTRAP_SQL_FILE}" \
-    --from-file=cmict-share.yaml="${CMICT_SHARE_FILE}" \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  import_args=(
+    -n "${NAMESPACE}"
+    --mysql-namespace "${MYSQL_NAMESPACE}"
+    --mysql-host "${MYSQL_HOST}"
+    --mysql-user "${MYSQL_USER}"
+    --mysql-password "${MYSQL_PASSWORD}"
+    --mysql-database "${MYSQL_DATABASE}"
+    --mysql-container "${MYSQL_CONTAINER}"
+    --mysql-label "${MYSQL_LABEL}"
+    --sql-file "${BOOTSTRAP_SQL_FILE}"
+    --config-file "${CMICT_SHARE_FILE}"
+    --config-data-id "${CMICT_SHARE_DATA_ID}"
+    --config-group "${CMICT_SHARE_GROUP}"
+  )
 
-  cat <<EOF | kubectl apply -f - >/dev/null
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${job_name}
-  namespace: ${NAMESPACE}
-spec:
-  backoffLimit: 1
-  ttlSecondsAfterFinished: 600
-  template:
-    spec:
-      restartPolicy: Never
-      containers:
-      - name: mysql-bootstrap
-        image: ${MYSQL_HELPER_IMAGE_REF}
-        imagePullPolicy: ${IMAGE_PULL_POLICY}
-        env:
-        - name: MYSQL_HOST
-          valueFrom:
-            secretKeyRef:
-              name: ${secret_name}
-              key: mysql-host
-        - name: MYSQL_PORT
-          valueFrom:
-            secretKeyRef:
-              name: ${secret_name}
-              key: mysql-port
-        - name: MYSQL_DATABASE
-          valueFrom:
-            secretKeyRef:
-              name: ${secret_name}
-              key: mysql-database
-        - name: MYSQL_USER
-          valueFrom:
-            secretKeyRef:
-              name: ${secret_name}
-              key: mysql-user
-        - name: MYSQL_PWD
-          valueFrom:
-            secretKeyRef:
-              name: ${secret_name}
-              key: mysql-password
-        command:
-        - /bin/sh
-        - -ec
-        - |
-          mysql --protocol=TCP -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -e "CREATE DATABASE IF NOT EXISTS \\\`${MYSQL_DATABASE}\\\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
-          if [ '${ENABLE_DB_BOOTSTRAP}' = 'true' ]; then
-            mysql --protocol=TCP -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" "${MYSQL_DATABASE}" < /bootstrap/frame_nacos_demo.sql
-          fi
-          if [ '${ENABLE_CMICT_SHARE_IMPORT}' = 'true' ]; then
-            CMICT_SHARE_B64="\$(base64 /bootstrap/cmict-share.yaml | tr -d '\n')"
-            mysql --protocol=TCP -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" "${MYSQL_DATABASE}" --execute="
-              REPLACE INTO config_info (
-                data_id, group_id, content, md5, gmt_create, gmt_modified,
-                src_user, src_ip, app_name, tenant_id, c_desc, c_use, effect, type, c_schema, encrypted_data_key
-              ) VALUES (
-                '${CMICT_SHARE_DATA_ID}', '${CMICT_SHARE_GROUP}',
-                CONVERT(FROM_BASE64('\${CMICT_SHARE_B64}') USING utf8mb4),
-                MD5(CONVERT(FROM_BASE64('\${CMICT_SHARE_B64}') USING utf8mb4)),
-                NOW(), NOW(),
-                'nacos-installer', '127.0.0.1', NULL, '', NULL, NULL, NULL, 'yaml', NULL, ''
-              );
-            "
-          fi
-        volumeMounts:
-        - name: bootstrap-assets
-          mountPath: /bootstrap
-      volumes:
-      - name: bootstrap-assets
-        configMap:
-          name: ${cm_name}
-EOF
+  if [[ -n "${MYSQL_POD}" ]]; then
+    import_args+=(--mysql-pod "${MYSQL_POD}")
+  fi
+  if [[ "${ENABLE_DB_BOOTSTRAP}" != "true" ]]; then
+    import_args+=(--skip-sql-import)
+  fi
+  if [[ "${ENABLE_CMICT_SHARE_IMPORT}" != "true" ]]; then
+    import_args+=(--skip-config-import)
+  fi
 
-  wait_for_job "${job_name}"
+  log "running local import script through kubectl"
+  "${IMPORT_SCRIPT_FILE}" "${import_args[@]}"
   success "Nacos bootstrap data is ready"
 }
 
@@ -738,9 +703,6 @@ uninstall_app() {
   kubectl delete service/nacos -n "${NAMESPACE}" --ignore-not-found
   kubectl delete configmap/nacos -n "${NAMESPACE}" --ignore-not-found
   kubectl delete configmap/nacos-config -n "${NAMESPACE}" --ignore-not-found
-  kubectl delete configmap/nacos-bootstrap-assets -n "${NAMESPACE}" --ignore-not-found
-  kubectl delete secret/nacos-bootstrap-db-auth -n "${NAMESPACE}" --ignore-not-found
-  kubectl delete job/nacos-db-bootstrap -n "${NAMESPACE}" --ignore-not-found
   kubectl delete servicemonitor/nacos -n "$(service_monitor_namespace)" --ignore-not-found
   success "Nacos resources removed from ${NAMESPACE}"
 }
@@ -748,7 +710,6 @@ uninstall_app() {
 status_app() {
   section "Nacos Status"
   kubectl get deployment,service,configmap,pods -n "${NAMESPACE}" -l app=nacos 2>/dev/null || true
-  kubectl get job -n "${NAMESPACE}" nacos-db-bootstrap 2>/dev/null || true
   if kubectl get crd servicemonitors.monitoring.coreos.com >/dev/null 2>&1; then
     kubectl get servicemonitor -n "$(service_monitor_namespace)" nacos 2>/dev/null || true
   fi
