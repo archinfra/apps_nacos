@@ -37,7 +37,7 @@
 - namespace: `aict`
 - replicas: `1`
 - image: `sealos.hub:5000/kube4/nacos-server:v2.3.0-slim`
-- MySQL host: `mysql-0.mysql.aict`
+- MySQL host: `mysql-0.mysql.aict.svc.cluster.local`
 - MySQL namespace: `aict`
 - MySQL pod: 自动根据 `--mysql-host` 首段或 `--mysql-label` 识别
 - MySQL label fallback: `app=mysql`

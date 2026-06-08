@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="nacos"
-APP_VERSION="0.1.8"
+APP_VERSION="0.1.9"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 IMAGE_DIR="${WORKDIR}/images"
@@ -22,7 +22,7 @@ IMAGE_TAG="v2.3.0-slim"
 ACTION="help"
 NAMESPACE="aict"
 REPLICAS="1"
-MYSQL_HOST="mysql-0.mysql.aict"
+MYSQL_HOST="mysql-0.mysql.aict.svc.cluster.local"
 MYSQL_NAMESPACE="${NAMESPACE}"
 MYSQL_NAMESPACE_EXPLICIT="false"
 MYSQL_POD=""
